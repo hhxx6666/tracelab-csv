@@ -4,6 +4,8 @@ Drop in two CSVs, align both runs on the same trigger event, find the intervals 
 
 [简体中文](README.zh-CN.md) · **[Live demo](https://hhxx6666.github.io/tracelab-csv/)** · MIT
 
+![The motor sample aligned on its start command, with the out-of-tolerance interval marked in red](docs/screenshot.png)
+
 ## 30-second demo
 
 1. Click **Load motor sample**. The baseline run crosses the start command threshold at **1.2125 s** and the candidate run at **1.860 s**. The chart shifts both starts to **t = 0**.
