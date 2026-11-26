@@ -10,7 +10,7 @@
   const maxFileSize = 10 * 1024 * 1024;
   const model = {
     sources: { a: null, b: null }, demo: false, view: 'curves', result: null,
-    geometry: null, cursor: -1, event: null, anchors: null
+    geometry: null, cursor: -1, event: null, anchors: null, unitEdited: false
   };
   let importQueue = Promise.resolve();
   let importEpoch = 0;
@@ -98,6 +98,10 @@
     model.cursor = -1;
     model.event = null;
     const { a, b } = model.sources;
+    if (!model.unitEdited) {
+      const rpm = [a, b].every(source => /rpm/i.test(source?.columns.signal ?? ''));
+      get('signal-unit').value = rpm ? 'rpm' : '';
+    }
     if (a && b) {
       try {
         const event = eventSettings();
@@ -133,11 +137,11 @@
     }
     model.demo = true;
     model.view = 'curves';
+    model.unitEdited = false;
     get('edge').value = 'rising';
     get('threshold').value = '0.5';
     get('occurrence').value = '1';
     get('tolerance').value = '50';
-    get('signal-unit').value = 'rpm';
     get('advanced').open = false;
     showFiles();
     recalculate();
@@ -300,8 +304,8 @@
           model.demo = false;
           model.sources = { a: null, b: null };
           model.view = 'curves';
+          model.unitEdited = false;
           get('tolerance').value = '';
-          get('signal-unit').value = '';
         }
         if (sources.length === 2) {
           [model.sources.a, model.sources.b] = sources;
@@ -310,9 +314,6 @@
           model.sources[slot] = sources[0];
         }
         const { a, b } = model.sources;
-        if (!unit() && a?.columns.signalUnit && a.columns.signalUnit === b?.columns.signalUnit) {
-          get('signal-unit').value = a.columns.signalUnit;
-        }
         const needsTrigger = get('edge').value !== 'first' && [a, b].some(source => source && !source.columns.trigger);
         if (needsTrigger) get('advanced').open = true;
         showFiles();
@@ -448,7 +449,7 @@ ${charts}
     setCursor(Math.max(0, Math.min(last, target)), true);
   });
   for (const id of ['edge', 'threshold', 'occurrence', 'tolerance']) get(id).addEventListener('change', recalculate);
-  get('signal-unit').addEventListener('input', render);
+  get('signal-unit').addEventListener('input', () => { model.unitEdited = true; render(); });
   get('curves-tab').addEventListener('click', () => { model.view = 'curves'; showView(); });
   get('delta-tab').addEventListener('click', () => { model.view = 'delta'; showView(); });
   get('load-demo').addEventListener('click', loadDemo);

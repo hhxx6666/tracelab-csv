@@ -76,8 +76,7 @@
     const signal = headers.find(name => name !== time && name !== trigger && /rpm|speed|value|signal|转速|信号/i.test(name))
       ?? headers.find(name => name !== time && name !== trigger) ?? headers.find(name => name !== time);
     const timeUnit = /(?:^|[\s(_\[])ms(?:$|[\s)\]])|毫秒/i.test(time) ? 'ms' : 's';
-    const signalUnit = /rpm|转速/i.test(signal) ? 'rpm' : '';
-    return { time, signal, trigger, timeUnit, signalUnit };
+    return { time, signal, trigger, timeUnit };
   }
 
   function prepare(csv, columns, event) {
