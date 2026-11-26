@@ -35,6 +35,16 @@ time_s,start_cmd,speed_rpm
 
 在自己的 GitHub 仓库中，进入 **Settings → Pages**，从 **Deploy from a branch** 发布 **main / (root)**。详见 [GitHub Pages 文档](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)。
 
+## 测试
+
+`assets/compare.js` 同时以 CommonJS 导出，可以直接在 Node.js 22 或更新版本上测试，无需安装依赖：
+
+```sh
+node --test
+```
+
+用例覆盖 CSV 解析、列推断、触发对齐、容差边界与超差区间的切分合并，并锁定上面那组演示数字。
+
 ## 许可
 
 [MIT](LICENSE)

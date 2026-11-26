@@ -1,0 +1,10 @@
+{
+  "name": "tracelab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Align two CSV experiment records on one trigger event and mark the out-of-tolerance intervals",
+  "type": "commonjs",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test" },
+  "license": "MIT"
+}
