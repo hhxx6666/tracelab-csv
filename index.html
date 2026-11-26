@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="对齐两次 CSV 实验的触发事件，标出超差区间，导出可离线打开的 HTML 报告。">
+  <meta name="theme-color" content="#f5f7fb">
+  <title>TraceLab · 实验数据对比器</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+  <script defer src="./assets/compare.js"></script>
+  <script defer src="./assets/chart.js"></script>
+  <script defer src="./assets/app.js"></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 13h4l3-8 5 14 3-8h5"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6v14M3 5c3.5-.8 6.5-.2 9 1.8C14.5 4.8 17.5 4.2 21 5v13c-3.5-.8-6.5-.2-9 1.8C9.5 17.8 6.5 17.2 3 18z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7z" fill="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4m0 4h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12 2.2 2.2 4.7-4.7"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 7-8m-5 0h5v5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.3"/><path d="M12 12h.01"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h7m4 0h5M4 12h3m4 0h9M4 18h10m4 0h2"/><circle cx="13" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="16" cy="18" r="2"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.6 8.2-7 10-3.4-1.8-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M13 5h6v6m0-6-8 8m7 0v6H5V6h6"/></symbol>
+  </svg>
+
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="./" aria-label="TraceLab 首页">
+        <span class="brand-icon"><svg class="icon"><use href="#i-wave"></use></svg></span>
+        <span>TraceLab<span class="brand-period">.</span></span>
+      </a>
+      <div class="header-actions">
+        <button class="help-button" id="open-guide" type="button"><svg class="icon"><use href="#i-book"></use></svg>使用指南</button>
+        <a class="help-button github-link" href="https://github.com/hhxx6666/tracelab-csv" target="_blank" rel="noopener noreferrer">GitHub<svg class="icon"><use href="#i-external"></use></svg></a>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <div class="eyebrow"><span></span> CSV 实验分析</div>
+        <h1 id="page-title">实验数据对比器</h1>
+        <p>将两次实验对齐到同一触发事件，定位超差区间，导出独立 HTML 报告。</p>
+      </div>
+      <div class="intro-actions">
+        <button id="load-demo" class="button secondary" type="button"><svg class="icon"><use href="#i-play"></use></svg>载入电机样例</button>
+        <button id="export" class="button primary" type="button"><svg class="icon"><use href="#i-download"></use></svg>导出 HTML 报告</button>
+      </div>
+    </section>
+
+    <div id="status" class="sr-only" role="status"></div>
+    <div id="error" class="error-banner" role="alert" hidden></div>
+    <section class="metrics" aria-label="对比摘要">
+      <article class="metric card">
+        <span class="metric-icon rose"><svg class="icon"><use id="result-icon" href="#i-alert"></use></svg></span>
+        <div><h2>对比结论</h2><div id="result-stat" class="metric-value result">—</div></div>
+        <span id="result-count" class="metric-caption"></span>
+      </article>
+      <article class="metric card">
+        <span class="metric-icon blue"><svg class="icon"><use href="#i-trend"></use></svg></span>
+        <div><h2>最大偏差</h2><div class="metric-value"><span id="peak-stat">—</span> <span class="unit signal-unit">rpm</span></div></div>
+      </article>
+      <article class="metric card">
+        <span class="metric-icon amber"><svg class="icon"><use href="#i-clock"></use></svg></span>
+        <div><h2>累计超差</h2><div class="metric-value"><span id="duration-stat">—</span> <span class="unit">s</span></div></div>
+      </article>
+      <article class="metric card">
+        <span class="metric-icon violet"><svg class="icon"><use href="#i-target"></use></svg></span>
+        <div><h2>允许偏差</h2><div class="metric-value"><span id="tolerance-stat">—</span> <span class="unit signal-unit">rpm</span></div></div>
+      </article>
+    </section>
+
+    <div class="workbench">
+      <section class="chart-card card" aria-labelledby="chart-title">
+        <div class="chart-header">
+          <div>
+            <div class="chart-heading"><h2 id="chart-title">电机启动响应</h2><span id="demo-badge" class="demo-badge">内置样例</span></div>
+            <p id="chart-description">对齐到启动指令的上升沿 · t = 0</p>
+          </div>
+          <div class="chart-switch" role="group" aria-label="图表视图">
+            <button type="button" id="curves-tab" aria-pressed="true">对齐曲线</button>
+            <button type="button" id="delta-tab" aria-pressed="false">偏差曲线</button>
+          </div>
+        </div>
+        <div class="chart-stage" id="chart-stage">
+          <canvas id="chart" tabindex="0" role="img" aria-label="对齐信号曲线。按左右方向键逐点查看。"></canvas>
+          <div id="chart-empty" class="chart-empty" hidden>导入两份 CSV 并完成触发设置后，曲线会显示在这里。</div>
+          <div id="chart-tip" class="chart-tip" hidden></div>
+        </div>
+        <div class="chart-footer">
+          <div class="legend" id="legend">
+            <span><i class="legend-line baseline"></i>基准 A</span>
+            <span><i class="legend-line candidate"></i>新版 B</span>
+            <span><i class="legend-area"></i>超差区间</span>
+            <span><i class="legend-line trigger"></i>触发事件</span>
+          </div>
+          <span class="chart-hint">悬停查看采样值</span>
+        </div>
+      </section>
+
+      <aside class="settings card" aria-labelledby="settings-title">
+        <div class="settings-title"><svg class="icon"><use href="#i-settings"></use></svg><h2 id="settings-title">对比设置</h2></div>
+        <div class="file-controls">
+          <div class="section-label">数据文件 <span>拖入或点击替换</span></div>
+          <input id="input-a" type="file" accept=".csv,text/csv,text/tab-separated-values" hidden>
+          <input id="input-b" type="file" accept=".csv,text/csv,text/tab-separated-values" hidden>
+          <button id="drop-a" class="file-drop" type="button" aria-label="导入基准 A CSV">
+            <span class="file-tag tag-a">A</span>
+            <span class="file-info"><strong id="name-a">导入基准 CSV</strong><small id="meta-a">基准数据</small></span>
+            <svg class="icon file-upload"><use href="#i-upload"></use></svg>
+          </button>
+          <button id="drop-b" class="file-drop" type="button" aria-label="导入新版 B CSV">
+            <span class="file-tag tag-b">B</span>
+            <span class="file-info"><strong id="name-b">导入新版 CSV</strong><small id="meta-b">对比数据</small></span>
+            <svg class="icon file-upload"><use href="#i-upload"></use></svg>
+          </button>
+        </div>
+        <div class="comparison-controls">
+          <label class="field"><span>触发事件</span>
+            <select id="edge"><option value="rising">上升沿</option><option value="falling">下降沿</option><option value="first">首个采样点</option></select>
+          </label>
+          <label class="field"><span>绝对容差</span>
+            <span class="number-wrap"><input id="tolerance" type="number" min="0" step="any" value="50" inputmode="decimal"><span id="tolerance-unit">rpm</span></span>
+          </label>
+          <details id="advanced" class="advanced">
+            <summary>列映射与触发参数<svg class="icon"><use href="#i-chevron"></use></svg></summary>
+            <div class="advanced-fields">
+              <div id="trigger-parameters" class="field-pair">
+                <label class="field"><span>触发阈值</span><input id="threshold" type="number" step="any" value="0.5" inputmode="decimal"></label>
+                <label class="field"><span>触发次数（第几次）</span><input id="occurrence" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+              </div>
+              <div class="field-pair">
+                <fieldset id="mapping-a"><legend>基准 A</legend></fieldset>
+                <fieldset id="mapping-b"><legend>新版 B</legend></fieldset>
+              </div>
+              <label class="field"><span>信号单位</span><input id="signal-unit" type="text" maxlength="18" placeholder="如 rpm、V、°C"></label>
+            </div>
+          </details>
+        </div>
+        <div id="anchor-details" class="anchor-details" hidden>
+          <div class="section-label">原始触发时刻</div>
+          <div><span><i class="baseline">A</i><strong id="anchor-a"></strong></span><span><i class="candidate">B</i><strong id="anchor-b"></strong></span></div>
+        </div>
+        <div class="privacy-note"><svg class="icon"><use href="#i-shield"></use></svg>数据只在当前浏览器中处理</div>
+      </aside>
+    </div>
+
+    <section class="interval-card card" aria-labelledby="interval-title">
+      <div class="interval-header">
+        <div><svg class="icon"><use href="#i-list"></use></svg><h2 id="interval-title">超差区间</h2><span id="interval-count" class="interval-count">—</span></div>
+        <p>时间相对于触发事件，偏差 = 新版 B − 基准 A</p>
+      </div>
+      <div class="table-scroll">
+        <table class="interval-table">
+          <thead><tr><th scope="col">开始</th><th scope="col">结束</th><th scope="col">持续时间</th><th scope="col">区间峰值偏差</th><th scope="col">偏差方向</th></tr></thead>
+          <tbody id="intervals"></tbody>
+        </table>
+      </div>
+    </section>
+    <footer class="site-footer"><span>TraceLab</span><a href="./LICENSE" target="_blank">MIT 开源许可</a></footer>
+  </main>
+
+  <dialog id="guide" aria-labelledby="guide-title">
+    <div class="guide-header"><h2 id="guide-title">使用指南</h2><form method="dialog"><button class="icon-button" aria-label="关闭"><svg class="icon"><use href="#i-close"></use></svg></button></form></div>
+    <ol>
+      <li><strong>试用电机样例。</strong> 用启动指令的第一次上升沿对齐两次记录。新版转速在启动后短时过冲，红色标出超过 ±50 rpm 的时段。</li>
+      <li><strong>拖入自己的 CSV。</strong> 分别拖到 A 和 B，也可以一次拖入两个文件。CSV 使用 UTF-8，首行为列名。时间必须严格递增，支持秒和毫秒。导入后填入绝对容差。</li>
+      <li><strong>选择同一个事件。</strong> 展开「列映射与触发参数」，为两份文件选好时间、触发和测量信号列，再设置阈值和触发次数。没有触发列时，可选择从首个采样点对齐。</li>
+      <li><strong>查看并导出。</strong> 绝对偏差大于容差时标红。点击「导出 HTML 报告」下载图表、参数和区间表，文件可离线打开。</li>
+    </ol>
+    <div class="guide-links"><a href="./samples/motor-baseline.csv" download>下载基准 CSV</a><a href="./samples/motor-v2.csv" download>下载新版 CSV</a></div>
+  </dialog>
+</body>
+</html>
