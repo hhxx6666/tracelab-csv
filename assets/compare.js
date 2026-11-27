@@ -79,14 +79,27 @@
     return { time, signal, trigger, timeUnit };
   }
 
-  function prepare(csv, columns, event) {
+  function sampleLimit(time, maximum) {
+    if (maximum !== undefined) {
+      if (!Number.isFinite(maximum) || maximum <= 0) throw new Error('最大采样间隔须大于 0。');
+      return maximum;
+    }
+    const sizes = time.slice(1).map((t, i) => t - time[i]).sort((a, b) => a - b);
+    return 5 * sizes[Math.floor((sizes.length - 1) / 2)];
+  }
+
+  function exceedsGap(from, to, limit) {
+    return to - from > limit + 4 * Number.EPSILON * Math.max(Math.abs(from), Math.abs(to), limit);
+  }
+
+  function prepare(csv, columns, event, maximum) {
     const indices = [columns.time, columns.signal, columns.trigger].map(name => csv.headers.indexOf(name));
     const useTrigger = event.edge !== 'first';
     const required = useTrigger ? indices : indices.slice(0, 2);
     if (required.includes(-1) || indices[0] === indices[1]) throw new Error('请选择有效的时间列、信号列和所需的触发列。');
     const time = [];
     const values = [];
-    let triggerTime;
+    let triggerIndex;
     let found = 0;
     let previousTrigger;
     const scale = columns.timeUnit === 'ms' ? 0.001 : 1;
@@ -96,24 +109,39 @@
       const trigger = useTrigger ? numeric(row[indices[2]]) : 0;
       if (![t, y, trigger].every(Number.isFinite)) throw new Error(`第 ${index + 1} 条数据的所选列包含空值或非数值。`);
       if (index > 0 && t <= time[index - 1]) throw new Error(`时间列必须严格递增，第 ${index + 1} 条数据重复或倒序。`);
-      if (index > 0 && useTrigger && triggerTime === undefined) {
+      if (index > 0 && useTrigger && triggerIndex === undefined) {
         const rising = previousTrigger < event.threshold && trigger >= event.threshold;
         const falling = previousTrigger > event.threshold && trigger <= event.threshold;
         if ((event.edge === 'rising' ? rising : falling) && ++found === event.occurrence) {
-          triggerTime = time[index - 1] + (t - time[index - 1]) * (event.threshold - previousTrigger) / (trigger - previousTrigger);
+          triggerIndex = index;
         }
       }
       previousTrigger = trigger;
       time.push(t);
       values.push(y);
     }
-    if (!useTrigger) triggerTime = time[0];
-    if (triggerTime === undefined) throw new Error(`未找到第 ${event.occurrence} 次${event.edge === 'rising' ? '上升' : '下降'}穿越阈值 ${event.threshold}。`);
+    const maxSampleGap = sampleLimit(time, maximum);
+    let triggerTime = time[0];
+    if (useTrigger) {
+      if (triggerIndex === undefined) throw new Error(`未找到第 ${event.occurrence} 次${event.edge === 'rising' ? '上升' : '下降'}穿越阈值 ${event.threshold}。`);
+      const before = time[triggerIndex - 1];
+      const after = time[triggerIndex];
+      if (exceedsGap(before, after, maxSampleGap)) {
+        throw new Error('所选触发沿跨采样缺口，无法确定触发时刻。请选择首个采样点或检查最大采样间隔。');
+      }
+      const previous = numeric(csv.records[triggerIndex - 1][indices[2]]);
+      const current = numeric(csv.records[triggerIndex][indices[2]]);
+      triggerTime = before + (after - before) * (event.threshold - previous) / (current - previous);
+    }
     const aligned = time.map(t => t - triggerTime);
     if (!Number.isFinite(aligned.at(-1) - aligned[0]) || aligned.some((t, i) => i > 0 && t <= aligned[i - 1])) {
       throw new Error('对齐后的时间范围超出数值精度。');
     }
-    return { time: aligned, values, triggerTime };
+    const gaps = [];
+    for (let i = 1; i < time.length; i++) {
+      if (exceedsGap(time[i - 1], time[i], maxSampleGap)) gaps.push({ start: aligned[i - 1], end: aligned[i] });
+    }
+    return { time: aligned, values, triggerTime, maxSampleGap, gaps };
   }
 
   function sampler(series) {
@@ -121,6 +149,8 @@
     return function (t) {
       const { time, values } = series;
       while (i < time.length - 2 && time[i + 1] < t) i++;
+      if (t === time[i]) return values[i];
+      if (t === time[i + 1]) return values[i + 1];
       const ratio = (t - time[i]) / (time[i + 1] - time[i]);
       return values[i] + (values[i + 1] - values[i]) * ratio;
     };
@@ -133,27 +163,44 @@
     if (!(start < end)) throw new Error('对齐后没有可比较的重叠时段。');
     const sampleA = sampler(a);
     const sampleB = sampler(b);
+    const gaps = [
+      ...(a.gaps ?? []).map(gap => ({ ...gap, source: 'A' })),
+      ...(b.gaps ?? []).map(gap => ({ ...gap, source: 'B' })),
+    ].filter(gap => gap.start < end && gap.end > start)
+      .map(gap => ({ ...gap, start: Math.max(gap.start, start), end: Math.min(gap.end, end) }))
+      .sort((left, right) => left.start - right.start);
+    const spans = [];
+    let available = start;
+    for (const gap of gaps) {
+      if (gap.start > available) spans.push({ start: available, end: gap.start });
+      available = Math.max(available, gap.end);
+    }
+    if (available < end) spans.push({ start: available, end });
+    const comparableDuration = spans.reduce((sum, span) => sum + (span.end - span.start), 0);
     const points = [];
     let ia = 0;
     let ib = 0;
-    let t = start;
-    while (true) {
-      const va = sampleA(t);
-      const vb = sampleB(t);
-      const delta = vb - va;
-      if (![va, vb, delta].every(Number.isFinite)) throw new Error('数据的数值范围过大，无法进行插值。');
-      points.push({ t, a: va, b: vb, delta });
-      if (t === end) break;
-      while (ia < a.time.length && a.time[ia] <= t) ia++;
-      while (ib < b.time.length && b.time[ib] <= t) ib++;
-      t = Math.min(a.time[ia] ?? Infinity, b.time[ib] ?? Infinity, end);
+    for (const span of spans) {
+      let t = span.start;
+      while (true) {
+        const va = sampleA(t);
+        const vb = sampleB(t);
+        const delta = vb - va;
+        if (![va, vb, delta].every(Number.isFinite)) throw new Error('数据的数值范围过大，无法进行插值。');
+        points.push({ t, a: va, b: vb, delta, breakBefore: t === span.start });
+        if (t === span.end) break;
+        while (ia < a.time.length && a.time[ia] <= t) ia++;
+        while (ib < b.time.length && b.time[ib] <= t) ib++;
+        t = Math.min(a.time[ia] ?? Infinity, b.time[ib] ?? Infinity, span.end);
+      }
     }
     const intervals = [];
-    let peak = points[0];
+    let peak = points[0] ?? null;
     for (let i = 1; i < points.length; i++) {
       const left = points[i - 1];
       const right = points[i];
       if (Math.abs(right.delta) > Math.abs(peak.delta)) peak = right;
+      if (right.breakBefore) continue;
       if (Math.abs(left.delta) <= tolerance && Math.abs(right.delta) <= tolerance) continue;
       for (const sign of [1, -1]) {
         const lo = sign * left.delta;
@@ -174,7 +221,7 @@
     }
     intervals.sort((first, second) => first.start - second.start);
     const duration = intervals.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
-    return { points, intervals, peak, start, end, duration, tolerance };
+    return { points, intervals, peak, start, end, duration, tolerance, gaps, comparableDuration };
   }
 
   function motorCSV(isCandidate) {

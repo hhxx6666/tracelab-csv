@@ -85,6 +85,7 @@ h1 { font-size: clamp(30px, 3vw, 42px); letter-spacing: -.045em; line-height: 1.
 .trigger { color: #64748b; border-top-style: dashed; }
 .limit { color: var(--red); border-top-style: dashed; }
 .legend-area { width: 13px; height: 9px; background: #ffe5e8; border: 1px solid #e79ba5; border-radius: 2px; }
+.legend-area.gap { background: #fff0cb; border-color: #ccaa57; }
 .chart-hint { text-align: right; }
 .settings { padding: 17px 16px 0; }
 .settings-title { display: flex; align-items: center; gap: 8px; padding: 1px 0 15px; border-bottom: 1px solid #edf1f6; }
