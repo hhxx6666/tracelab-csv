@@ -46,11 +46,11 @@
 
     const small = width < 520;
     const isDelta = view === 'delta';
-    const { points, intervals, start, end, peak, tolerance } = result;
+    const { points, intervals, gaps, start, end, peak, tolerance } = result;
     let low = 0;
     let high = 0;
     if (isDelta) {
-      const extent = Math.max(Math.abs(peak.delta), tolerance, 1);
+      const extent = Math.max(Math.abs(peak?.delta ?? 0), tolerance, 1);
       low = -extent;
       high = extent;
     } else {
@@ -101,8 +101,10 @@
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(x(points[0].t), y(points[0][key]));
-      for (let i = 1; i < points.length; i++) ctx.lineTo(x(points[i].t), y(points[i][key]));
+      for (const point of points) {
+        if (point.breakBefore) ctx.moveTo(x(point.t), y(point[key]));
+        else ctx.lineTo(x(point.t), y(point[key]));
+      }
       ctx.stroke();
     }
 
@@ -116,6 +118,8 @@
     for (const span of intervals) {
       ctx.fillRect(x(span.start), top, x(span.end) - x(span.start), bottom - top);
     }
+    ctx.fillStyle = '#fff0cb';
+    for (const gap of gaps) ctx.fillRect(x(gap.start), top, x(gap.end) - x(gap.start), bottom - top);
 
     ctx.fillStyle = color.muted;
     ctx.textBaseline = 'middle';

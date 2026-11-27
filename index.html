@@ -131,6 +131,9 @@
           <label class="field"><span>绝对容差</span>
             <span class="number-wrap"><input id="tolerance" type="number" min="0" step="any" value="50" inputmode="decimal"><span id="tolerance-unit">rpm</span></span>
           </label>
+          <label class="field"><span>最大采样间隔（ms）</span>
+            <input id="max-gap" type="number" min="0" step="any" placeholder="自动（各自中位间隔 × 5）" inputmode="decimal">
+          </label>
           <details id="advanced" class="advanced">
             <summary>列映射与触发参数<svg class="icon"><use href="#i-chevron"></use></svg></summary>
             <div class="advanced-fields">

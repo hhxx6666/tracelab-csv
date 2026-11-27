@@ -126,6 +126,35 @@ test('拒绝负容差和没有重叠的时段', () => {
   assert.throws(() => compare(series([0, 1], [0, 0]), series([5, 6], [0, 0]), 0), /没有可比较的重叠时段/);
 });
 
+test('100 ms 采样缺口会截断曲线，并排除缺口中的插值超差起点', () => {
+  const build = (rows, maximum) => prepare(parseCSV('time_s,y\n' + rows), columns(), event({ edge: 'first' }), maximum);
+  const a = build('0,0\n.001,0\n.101,0\n.102,0\n.103,0');
+  const b = build('0,0\n.001,0\n.101,100\n.102,100\n.103,100');
+  const result = compare(a, b, 10);
+  close(result.intervals[0].start, 0.101);
+  close(result.comparableDuration, 0.003);
+  close(result.duration, 0.002);
+  assert.deepEqual(result.gaps.map(gap => gap.source), ['A', 'B']);
+  assert.deepEqual(result.points.filter(point => point.breakBefore).map(point => point.t), [0, 0.101]);
+  const sparse = compare(build('0,0\n.001,0\n.101,0'), build('0,0\n.001,0\n.101,100'), 10);
+  assert.equal(sparse.gaps.length, 2);
+  assert.equal(sparse.intervals.length, 0);
+  close(sparse.comparableDuration, 0.001);
+  close(compare(build('0,0\n.001,0\n.101,0\n.103,0', 0.11),
+    build('0,0\n.001,0\n.101,100\n.103,100', 0.11), 10).intervals[0].start, 0.011);
+});
+
+test('显式间隔上限能标记全空档，也会拒绝跨缺口的触发沿', () => {
+  const csv = parseCSV('time_s,trig,y\n0,0,0\n.1,1,20');
+  assert.throws(() => prepare(csv, columns(), event(), 0.015), /触发沿跨采样缺口/);
+  const a = prepare(csv, columns(), event({ edge: 'first' }), 0.015);
+  const result = compare(a, series([0, 0.1], [5, 5]), 10);
+  assert.equal(result.comparableDuration, 0);
+  assert.equal(result.peak, null);
+  assert.deepEqual(result.intervals, []);
+  assert.deepEqual(result.points, []);
+});
+
 test('内置样例与 README 公布的演示数字一致', () => {
   const build = side => {
     const csv = parseCSV(motorCSV(side === 'b'));

@@ -22,6 +22,11 @@
   const announce = message => { get('status').textContent = message; };
   const selectOption = (value, title) => new Option(title, value);
   const seconds = number => format(number, 3) + ' s';
+  const conclusion = result => {
+    if (result.intervals.length) return '发现超差';
+    if (!result.comparableDuration) return '无可比较时段';
+    return result.gaps.length ? '可比较时段内无超差' : '容差内';
+  };
 
   function setError(message = '') {
     const error = get('error');
@@ -105,18 +110,21 @@
     if (a && b) {
       try {
         const event = eventSettings();
+        const gapInput = get('max-gap');
+        const maximum = gapInput.value === '' && !gapInput.validity.badInput ? undefined : gapInput.valueAsNumber / 1000;
         model.event = event;
         const series = {};
         for (const side of ['a', 'b']) {
           const source = model.sources[side];
           try {
-            series[side] = prepare(source.csv, source.columns, event);
+            series[side] = prepare(source.csv, source.columns, event, maximum);
           } catch (error) {
             throw new Error(slotName(side) + ' · ' + error.message);
           }
         }
         const tolerance = get('tolerance').valueAsNumber;
         model.result = compare(series.a, series.b, tolerance);
+        model.result.gapLimits = { a: series.a.maxSampleGap, b: series.b.maxSampleGap };
         model.anchors = { a: series.a.triggerTime, b: series.b.triggerTime };
       } catch (error) {
         setError(error.message);
@@ -142,6 +150,7 @@
     get('threshold').value = '0.5';
     get('occurrence').value = '1';
     get('tolerance').value = '50';
+    get('max-gap').value = '';
     get('advanced').open = false;
     showFiles();
     recalculate();
@@ -165,7 +174,7 @@
       const row = document.createElement('tr');
       const cell = row.insertCell();
       cell.colSpan = 5;
-      cell.textContent = result ? '重叠时段内无超差。' : '等待有效的对比数据。';
+      cell.textContent = result ? conclusion(result) + '。' : '等待有效的对比数据。';
       rows.append(row);
     } else {
       for (const interval of result.intervals) {
@@ -185,13 +194,14 @@
     const result = model.result;
     const count = result?.intervals.length;
     const stat = get('result-stat');
-    stat.textContent = result ? (count ? '发现超差' : '容差内') : '待对比';
-    stat.className = 'metric-value result' + (result ? (count ? ' bad' : ' good') : '');
+    const clean = result && !count && !result.gaps.length;
+    stat.textContent = result ? conclusion(result) : '待对比';
+    stat.className = 'metric-value result' + (count ? ' bad' : clean ? ' good' : '');
     const icon = get('result-icon');
-    icon.setAttribute('href', result && !count ? '#i-check' : '#i-alert');
-    icon.closest('.metric-icon').classList.toggle('green', Boolean(result && !count));
+    icon.setAttribute('href', clean ? '#i-check' : '#i-alert');
+    icon.closest('.metric-icon').classList.toggle('green', Boolean(clean));
     get('result-count').textContent = result ? count + ' 个区间' : '';
-    get('peak-stat').textContent = result ? signed(result.peak.delta, 1) : '—';
+    get('peak-stat').textContent = result?.peak ? signed(result.peak.delta, 1) : '—';
     get('duration-stat').textContent = result ? format(result.duration, 3) : '—';
     const tolerance = get('tolerance').valueAsNumber;
     get('tolerance-stat').textContent = Number.isFinite(tolerance) && tolerance >= 0 ? '±' + format(tolerance, 3) : '—';
@@ -203,13 +213,17 @@
     get('chart-description').textContent = model.demo && model.event?.edge === 'rising' && model.event.occurrence === 1
       ? '对齐到启动指令的上升沿 · t = 0'
       : model.event ? '对齐到' + eventLabel(model.event) + ' · t = 0' : '相对触发时间';
+    if (result) {
+      get('chart-description').textContent += ' · 可比较 ' + seconds(result.comparableDuration) +
+        (result.gaps.length ? ' · ' + result.gaps.length + ' 处采样缺口' : '');
+    }
     get('anchor-details').hidden = !model.anchors;
     if (model.anchors) {
       for (const side of ['a', 'b']) get('anchor-' + side).textContent = format(model.anchors[side], 4) + ' s';
     }
     get('export').disabled = !result;
     get('chart-empty').hidden = Boolean(result);
-    canvas.tabIndex = result ? 0 : -1;
+    canvas.tabIndex = result?.points.length ? 0 : -1;
     showIntervals(result);
     showView();
   }
@@ -224,6 +238,7 @@
       ? [['legend-line candidate', '新版 B − 基准 A'], ['legend-line limit', '容差边界']]
       : [['legend-line baseline', '基准 A'], ['legend-line candidate', '新版 B']];
     entries.push(['legend-area', '超差区间'], ['legend-line trigger', '触发事件']);
+    if (model.result?.gaps.length) entries.push(['legend-area gap', '采样缺口']);
     legend.replaceChildren(...entries.map(([className, label]) => {
       const entry = document.createElement('span');
       const marker = document.createElement('i');
@@ -337,14 +352,17 @@
     const html = escapeHTML;
     const rows = result.intervals.map(interval =>
       '<tr>' + intervalCells(interval).map(value => '<td>' + html(value) + '</td>').join('') + '</tr>'
-    ).join('') || '<tr><td colspan="5">重叠时段内无超差。</td></tr>';
+    ).join('') || '<tr><td colspan="5">' + conclusion(result) + '。</td></tr>';
+    const gapRows = result.gaps.map(gap =>
+      '<tr><td>' + gap.source + '</td><td>' + seconds(gap.start) + '</td><td>' + seconds(gap.end) + '</td></tr>'
+    ).join('') || '<tr><td colspan="3">重叠时段内未检出缺口。</td></tr>';
     const charts = ['curves', 'delta'].map(view => {
       const image = document.createElement('canvas');
       const label = view === 'curves' ? '对齐曲线' : '偏差曲线';
       draw(image, result, { width: 1000, height: 360, ratio: 2, view, unit: unit() });
-      return '<section><h2>' + label + '</h2><img alt="' + label + '，红色区域表示超差" src="' + image.toDataURL() + '">' +
+      return '<section><h2>' + label + '</h2><img alt="' + label + '，红色表示超差，黄色表示采样缺口" src="' + image.toDataURL() + '">' +
         '<p class="legend">' + (view === 'curves' ? '绿线 基准 A · 蓝线 新版 B' : '蓝线 新版 B − 基准 A · 红色虚线 容差边界') +
-        ' · 红色区域 超差 · 灰色虚线 触发事件</p></section>';
+        ' · 红色区域 超差 · 黄色区域 采样缺口 · 灰色虚线 触发事件</p></section>';
     }).join('');
     const inputs = ['a', 'b'].map(side => {
       const { name, csv, columns } = model.sources[side];
@@ -373,18 +391,22 @@ th,td{padding:8px;white-space:nowrap;border-bottom:1px solid #e8edf4}th{backgrou
 <main><header><p class="brand">TraceLab</p><h1>${html(title)}</h1>
 <p class="lede"><time datetime="${created.toISOString()}">${date} (UTC+8)</time>${model.demo ? ' · 内置模拟样例' : ''}</p></header>
 <div class="metrics">
-<div><span>对比结论</span><strong class="${result.intervals.length ? 'bad' : 'good'}">${result.intervals.length ? '发现超差' : '容差内'}</strong></div>
-<div><span>最大偏差</span><strong>${html(signed(result.peak.delta, 2) + unitSuffix())}</strong></div>
+<div><span>对比结论</span><strong class="${result.intervals.length ? 'bad' : result.gaps.length ? '' : 'good'}">${conclusion(result)}</strong></div>
+<div><span>最大偏差</span><strong>${result.peak ? html(signed(result.peak.delta, 2) + unitSuffix()) : '—'}</strong></div>
 <div><span>累计超差</span><strong>${seconds(result.duration)}</strong></div>
+<div><span>可比较时长</span><strong>${seconds(result.comparableDuration)}</strong></div>
 <div><span>允许偏差</span><strong>${html('±' + format(result.tolerance, 4) + unitSuffix())}</strong></div>
 </div>
 ${charts}
 <section><h2>超差区间（${result.intervals.length}）</h2><div class="table-container"><table>
 <thead><tr><th>开始</th><th>结束</th><th>持续时间</th><th>区间峰值偏差</th><th>偏差方向</th></tr></thead>
 <tbody>${rows}</tbody></table></div></section>
+<section><h2>采样缺口（${result.gaps.length}）</h2><p>两份记录的最大采样间隔为 A ${format(result.gapLimits.a * 1000, 3)} ms、B ${format(result.gapLimits.b * 1000, 3)} ms。以下时刻相对于触发事件。</p>
+<div class="table-container"><table><thead><tr><th>记录</th><th>缺口开始</th><th>缺口结束</th></tr></thead>
+<tbody>${gapRows}</tbody></table></div></section>
 <section><h2>对比参数</h2><dl>${inputs}
-<dt>触发事件</dt><dd>${html(event)}</dd><dt>比较时段</dt><dd>${seconds(result.start)} 至 ${seconds(result.end)}（相对于触发事件）</dd></dl>
-<p>偏差 = 新版 B − 基准 A。时间轴对齐到各自的触发事件。两条信号在重叠时段内进行线性插值，绝对偏差严格大于容差的区间标红。</p></section></main></html>`;
+<dt>触发事件</dt><dd>${html(event)}</dd><dt>重叠时段</dt><dd>${seconds(result.start)} 至 ${seconds(result.end)}（相对于触发事件）</dd></dl>
+<p>偏差 = 新版 B − 基准 A。仅在两侧都有采样支持的时段内做线性插值。超差区间边界为插值估计。</p></section></main></html>`;
     const url = URL.createObjectURL(new Blob([markup], { type: 'text/html;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
@@ -430,17 +452,22 @@ ${charts}
   });
   canvas.addEventListener('pointermove', event => {
     const geom = model.geometry;
-    if (!geom || !model.result) return;
+    if (!geom || !model.result?.points.length) return;
     if (event.offsetX < geom.left || event.offsetX > geom.right || event.offsetY < geom.top || event.offsetY > geom.bottom) {
       setCursor(-1);
       return;
     }
-    setCursor(closestPoint(model.result.points, geom.timeAt(event.offsetX)));
+    const time = geom.timeAt(event.offsetX);
+    const points = model.result.points;
+    const index = closestPoint(points, time);
+    const leftGap = points[index].t > time && points[index].breakBefore;
+    const rightGap = points[index].t < time && (points[index + 1]?.breakBefore ?? true);
+    setCursor(leftGap || rightGap ? -1 : index);
   });
   canvas.addEventListener('pointerleave', () => setCursor(-1));
   canvas.addEventListener('blur', () => setCursor(-1));
   canvas.addEventListener('keydown', event => {
-    if (!model.result || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    if (!model.result?.points.length || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const last = model.result.points.length - 1;
     let target = model.cursor + (event.key === 'ArrowLeft' ? -1 : 1);
@@ -448,7 +475,7 @@ ${charts}
     if (event.key === 'End') target = last;
     setCursor(Math.max(0, Math.min(last, target)), true);
   });
-  for (const id of ['edge', 'threshold', 'occurrence', 'tolerance']) get(id).addEventListener('change', recalculate);
+  for (const id of ['edge', 'threshold', 'occurrence', 'tolerance', 'max-gap']) get(id).addEventListener('change', recalculate);
   get('signal-unit').addEventListener('input', () => { model.unitEdited = true; render(); });
   get('curves-tab').addEventListener('click', () => { model.view = 'curves'; showView(); });
   get('delta-tab').addEventListener('click', () => { model.view = 'delta'; showView(); });

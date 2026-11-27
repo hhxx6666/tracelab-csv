@@ -29,7 +29,8 @@ time_s,start_cmd,speed_rpm
 
 - The two files may use different column names and may each be in seconds or milliseconds. The time column must increase strictly and the selected columns must hold finite numbers. Both signals should share the same unit. Each file is limited to 10 MiB.
 - Pick the time, trigger and signal columns for each file under **Column mapping and trigger**. A rising edge goes from below the threshold to the threshold or above; a falling edge is the reverse. The trigger time is resolved by linear interpolation. You can choose the n-th crossing, or align on the **first sample** instead.
-- Only the overlapping period is compared. The deviation is interpolated on the union of both time axes, and the moments where it crosses the tolerance boundary are solved for. A deviation counts as out of tolerance only when its absolute value is strictly greater than the tolerance; boundaries are reported to the millisecond. Signed deviation is **candidate B − baseline A**.
+- An interval longer than **Maximum sample interval (ms)** is a gap. By default, the threshold is five times the median interval of each file, using the smaller middle interval for an even count. Set it explicitly for sparse or deliberately irregular recordings. Alignment stops with an error if the selected observed trigger crossing lies in a gap.
+- The curves break in any gap within the overlap. The report lists each recording's gaps and the total comparable time, counting overlapping gaps once. Deviation is **candidate B − baseline A**. Tolerance crossings are estimated by linear interpolation only where both recordings have support, and are displayed with up to millisecond precision.
 
 ## Run locally and deploy
 
